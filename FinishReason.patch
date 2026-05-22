@@ -1,0 +1,23 @@
+diff --git a/vllm/v1/engine/__init__.py b/vllm/v1/engine/__init__.py
+--- a/vllm/v1/engine/__init__.py
++++ b/vllm/v1/engine/__init__.py
+@@ -17,7 +17,7 @@ from vllm.v1.outputs import LogprobsLists, LogprobsTensors
+ 
+ # These are possible values of RequestOutput.finish_reason,
+ # so form part of the external API.
+-FINISH_REASON_STRINGS = ("stop", "length", "abort")
++FINISH_REASON_STRINGS = ("stop", "length", "abort", "migrate")
+ 
+ 
+ class FinishReason(enum.IntEnum):
+@@ -35,5 +35,6 @@ STOP = 0
+     LENGTH = 1
+     ABORT = 2
++    MIGRATE = 3
+ 
+     def __str__(self):
+         return FINISH_REASON_STRINGS[self.value]
+@@ -170,2 +170,3 @@ start_wave: Optional[int] = None
++    migrated_requests: Optional[set[str]] = None
+ 
+     def __post_init__(self):

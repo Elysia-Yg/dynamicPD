@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual env
+venv/
+.env/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Benchmark logs
+benchmarks/logs/
+
+# Datasets
+benchmarks/*.csv
