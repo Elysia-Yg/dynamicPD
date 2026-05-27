@@ -8,7 +8,7 @@ export OMP_NUM_THREADS=100
 export VLLM_ASCEND_LLMDD_RPC_PORT=5559
 export VLLM_ALLOW_INSECURE_SERIALIZATION=1
 
-export DYNAMICPD_ENABLE=1 # enable dynamicPD
+export DYNAMICPD_ENABLED=1 # enable dynamicPD
 unset http_proxy
 
 vllm serve /yangguang/workspace/Qwen/Qwen2.5-14b \
