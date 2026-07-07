@@ -15,6 +15,7 @@ from dynamicPD.vllm.vllm.model_executor.layers.linear import ColumnParallelLinea
 from dynamicPD.vllm.vllm.model_executor.layers.logits_processor import LogitsProcessorPatch
 from dynamicPD.vllm.vllm.model_executor.layers.vocab_parallel_embeding import VocabParallelEmbeddingPatch
 from dynamicPD.vllm.vllm.model_executor.models.qwen2 import Qwen2AttentionPatch, Qwen2DecoderLayerPatch, Qwen2ForCausalLMPatch
+from dynamicPD.vllm.vllm.model_executor.models.qwen3 import Qwen3AttentionPatch, Qwen3DecoderLayerPatch, Qwen3ForCausalLMPatch
 from dynamicPD.vllm.vllm.v1.core.sched.output import SchedulerOutputPatch
 from dynamicPD.vllm.vllm.v1.core.sched.scheduler import SchedulerPatch
 from dynamicPD.vllm.vllm.v1.core.sched.utils import check_stop
@@ -82,6 +83,9 @@ def apply_dynamicPD_patches():
     Qwen2AttentionPatch.apply_patch()
     Qwen2DecoderLayerPatch.apply_patch()
     Qwen2ForCausalLMPatch.apply_patch()
+    Qwen3AttentionPatch.apply_patch()
+    Qwen3DecoderLayerPatch.apply_patch()
+    Qwen3ForCausalLMPatch.apply_patch()
     RequestOutputPatch.apply_patch()
     RequestPatch.apply_patch()
     RequestStatePatch.apply_patch()
