@@ -5,30 +5,21 @@ import torch
 
 from vllm.v1.request import Request, RequestStatus
 
-
-def check_stop(request: Request,
-               max_model_len: int,
-               pooler_output: Optional[torch.Tensor] = None) -> bool:
+def check_stop(request: Request, max_model_len: int) -> bool:
+    assert not request.pooling_params
+    
     if request.status == RequestStatus.FINISHED_MIGRATED:
         request.stop_reason = 'migrate'
         return True
-    
-    if (request.num_tokens >= max_model_len
-            or request.num_output_tokens >= request.max_tokens):
-        request.status = RequestStatus.FINISHED_LENGTH_CAPPED
-        return True
-
-    if request.pooling_params:
-        if pooler_output is not None:
-            request.status = RequestStatus.FINISHED_STOPPED
-            return True
-        return False
 
     sampling_params = request.sampling_params
     assert sampling_params is not None
+
+    if request.num_output_tokens < sampling_params.min_tokens:
+        return False
+
     last_token_id = request.output_token_ids[-1]
-    if (not sampling_params.ignore_eos
-            and last_token_id == request.eos_token_id):
+    if last_token_id == sampling_params.eos_token_id:
         request.status = RequestStatus.FINISHED_STOPPED
         return True
 
@@ -36,4 +27,22 @@ def check_stop(request: Request,
         request.status = RequestStatus.FINISHED_STOPPED
         request.stop_reason = last_token_id
         return True
+    if (
+        request.num_tokens >= max_model_len
+        or request.num_output_tokens >= request.max_tokens
+    ):
+        request.status = RequestStatus.FINISHED_LENGTH_CAPPED
+        return True
+
+    repetition_detection = sampling_params.repetition_detection
+    if repetition_detection is not None and (
+        check_sequence_repetition(
+            request.output_token_ids,
+            repetition_detection,
+        )
+    ):
+        request.status = RequestStatus.FINISHED_REPETITION
+        request.stop_reason = "repetition_detected"
+        return True
+
     return False

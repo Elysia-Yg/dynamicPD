@@ -1,0 +1,27 @@
+diff --git a/vllm/v1/engine/__init__.py b/vllm/v1/engine/__init__.py
+--- a/vllm/v1/engine/__init__.py
++++ b/vllm/v1/engine/__init__.py
+@@ -26,7 +26,7 @@ PauseMode = Literal["abort", "wait", "keep"]
+ 
+ # These are possible values of RequestOutput.finish_reason,
+ # so form part of the external API.
+-FINISH_REASON_STRINGS = ("stop", "length", "abort", "error", "repetition")
++FINISH_REASON_STRINGS = ("stop", "length", "abort", "error", "repetition", "migrate")
+ 
+ EEP_NOTIFICATION_CALL_ID = -1
+ 
+@@ -56,6 +56,7 @@ class FinishReason(enum.IntEnum):
+     ABORT = 2
+     ERROR = 3
+     REPETITION = 4
++    MIGRATE = 5
+ 
+     def __str__(self):
+         return FINISH_REASON_STRINGS[self.value]
+@@ -208,5 +209,6 @@ class EngineCoreOutputs(
+     # "old" wave, so the next wave needs to be started in other engines.
+     start_wave: int | None = None
++    migrated_requests: set[str] | None = None
+ 
+     def __post_init__(self):
+         if self.timestamp == 0.0:

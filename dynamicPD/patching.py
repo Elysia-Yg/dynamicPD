@@ -61,4 +61,4 @@ class dynamicPDPatch:
                 attr = MethodType(attr.__func__, target)
 
             setattr(target, name, attr)
-            logger.info("Patched %s.%s", target.__name__, name)
+            # logger.info("Patched %s.%s", target.__name__, name)

@@ -1,0 +1,14 @@
+diff --git a/vllm/v1/engine/utils.py b/vllm/v1/engine/utils.py
+--- a/vllm/v1/engine/utils.py
++++ b/vllm/v1/engine/utils.py
+@@ -230,8 +230,9 @@ def get_device_indices(
+     if local_world_size is None:
+         local_world_size = world_size
+     try:
++        offset = int(os.getenv("START_DEVICE_ID", 0))
+         value = ",".join(
+-            str(current_platform.device_id_to_physical_device_id(i))
++            str(current_platform.device_id_to_physical_device_id(i + offset))
+             for i in range(
+                 local_dp_rank * world_size,
+                 local_dp_rank * world_size + local_world_size,

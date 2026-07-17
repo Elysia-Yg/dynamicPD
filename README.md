@@ -10,15 +10,6 @@ dynamicPD 是基于 vLLM / vLLM-Ascend 的 PD 分离实验 (WindServe) 补丁，
 - torch-npu 2.7.1
 - Python >= 3.10
 
-源码默认按当前工作区布局开发：
-
-```text
-/home/wujie/jingqi/vllm_workspace/
-  vllm/
-  vllm-ascend/
-  dynamicPD/
-```
-
 ## 安装
 
 在 dynamicPD 仓库中安装：
