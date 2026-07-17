@@ -1,6 +1,6 @@
 # dynamicPD
 
-dynamicPD 是基于 vLLM / vLLM-Ascend 的 PD 分离实验补丁，当前分支已对齐到 vLLM 0.18.0。它主要用于 Ascend 上的分离式 prefill/decode，并支持 decode 侧异步卸载较大的 prefill 请求。
+dynamicPD 是基于 vLLM / vLLM-Ascend 的 PD 分离 (WindServe) 实验补丁，当前分支已对齐到 vLLM 0.18.0。它主要用于 Ascend 上的分离式 prefill/decode，并支持 decode 侧异步卸载较大的 prefill 请求。
 
 ## 版本依赖
 
