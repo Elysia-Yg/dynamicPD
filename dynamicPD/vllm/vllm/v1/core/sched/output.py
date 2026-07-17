@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
+import time
+
 if TYPE_CHECKING:
     import numpy as np
     import numpy.typing as npt
@@ -23,11 +25,11 @@ class SchedulerOutputPatch(dynamicPDPatch[SchedulerOutput]):
     prefill_finished_req_ids: set[str]
     prefill_structured_output_request_ids: dict[str, int]
     prefill_grammar_bitmask: Optional[npt.NDArray[np.int32]]
-    # KV Cache Connector metadata.
-    kv_connector_metadata: Optional[KVConnectorMetadata] = None
 
     prefill_request_ids: set[str] = None #用来记录还未完成的prefill_req，判断是否能够加入input_batch
     prefill_request_not_put: set[str] = None #用来记录还没加入过prefill_input_batch的req，判断是否该加入prefill_input_batch
+    
+    time_stamp : float = None
     _original_init = SchedulerOutput.__init__
     def __init__(self, *args, **kwargs):
         self.prefill_scheduled_new_reqs = kwargs.pop("prefill_scheduled_new_reqs", [])
@@ -43,3 +45,4 @@ class SchedulerOutputPatch(dynamicPDPatch[SchedulerOutput]):
         self.prefill_request_ids = kwargs.pop("prefill_request_ids", set())
         self.prefill_request_not_put = kwargs.pop("prefill_request_not_put", set())
         self._original_init(*args, **kwargs)
+        self.time_stamp = time.perf_counter()

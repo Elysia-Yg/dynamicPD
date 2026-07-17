@@ -1,8 +1,7 @@
 from vllm.forward_context import ForwardContext, get_forward_context
-from vllm.distributed import tensor_model_parallel_all_reduce
 from vllm.model_executor.layers.vocab_parallel_embedding import get_masked_input_and_mask, VocabParallelEmbedding
 
-from dynamicPD.vllm.vllm.distributed.communication_op import tensor_model_parallel_all_reduce_offload
+from dynamicPD.vllm.vllm.distributed.communication_op import tensor_model_parallel_all_reduce
 from dynamicPD.patching import dynamicPDPatch
 
 class VocabParallelEmbeddingPatch(dynamicPDPatch[VocabParallelEmbedding]):
@@ -25,9 +24,8 @@ class VocabParallelEmbeddingPatch(dynamicPDPatch[VocabParallelEmbedding]):
             output_parallel.masked_fill_(input_mask.unsqueeze(-1), 0)
         # Reduce across all the model parallel GPUs.
         forward_context: ForwardContext = get_forward_context()
-        if forward_context.use_offload_tp:
-            print("use offload tp all reduce in vocab parallel embedding")
-            output = tensor_model_parallel_all_reduce_offload(output_parallel)
-        else:
-            output = tensor_model_parallel_all_reduce(output_parallel)
+        output = tensor_model_parallel_all_reduce(
+            output_parallel,
+            offload=forward_context.additional_kwargs.get("use_offload_tp", False),
+        )
         return output

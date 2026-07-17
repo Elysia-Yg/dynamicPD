@@ -4,7 +4,7 @@ from vllm.logger import logger
 from vllm.logprobs import PromptLogprobs
 from vllm.lora.request import LoRARequest
 from vllm.multimodal.inputs import MultiModalPlaceholderDict
-from vllm.sequence import RequestMetrics
+from vllm.v1.metrics.stats import RequestStateStats
 
 
 from vllm.outputs import CompletionOutput, RequestOutput
@@ -15,31 +15,30 @@ class RequestOutputPatch(dynamicPDPatch[RequestOutput]):
     def __init__(
         self,
         request_id: str,
-        prompt: Optional[str],
-        prompt_token_ids: Optional[list[int]],
-        prompt_logprobs: Optional[PromptLogprobs],
+        prompt: str | None,
+        prompt_token_ids: list[int] | None,
+        prompt_logprobs: PromptLogprobs | None,
         outputs: list[CompletionOutput],
         finished: bool,
-        metrics: Optional[RequestMetrics] = None,
-        lora_request: Optional[LoRARequest] = None,
-        encoder_prompt: Optional[str] = None,
-        encoder_prompt_token_ids: Optional[list[int]] = None,
-        num_cached_tokens: Optional[int] = None,
-        migrate: Optional[bool] = False,
+        metrics: RequestStateStats | None = None,
+        lora_request: LoRARequest | None = None,
+        encoder_prompt: str | None = None,
+        encoder_prompt_token_ids: list[int] | None = None,
+        num_cached_tokens: int | None = None,
+        migrate: bool | None = False,
         *,
-        multi_modal_placeholders: Optional[MultiModalPlaceholderDict] = None,
-        kv_transfer_params: Optional[dict[str, Any]] = None,
+        kv_transfer_params: dict[str, Any] | None = None,
         # Forward compatibility, code that uses args added in new release can
         # still run with older versions of vLLM without breaking.
         **kwargs: Any,
     ) -> None:
         if kwargs:
-            logger.warning_once("RequestOutput: Ignoring extra arguments: %s",
-                                str(kwargs))
+            logger.warning_once(
+                "RequestOutput: Ignoring extra arguments: %s", str(kwargs)
+            )
         self.request_id = request_id
         self.prompt = prompt
         self.prompt_token_ids = prompt_token_ids
-        self.multi_modal_placeholders = multi_modal_placeholders or {}
         self.prompt_logprobs = prompt_logprobs
         self.outputs = outputs
         self.finished = finished

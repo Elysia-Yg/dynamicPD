@@ -1,6 +1,7 @@
-from typing import Any, Optional, Union, cast
+from typing import Any, cast
 
 import torch
+import numpy as np
 
 from vllm.outputs import (CompletionOutput, PoolingOutput,
                           PoolingRequestOutput, RequestOutput)
@@ -13,62 +14,51 @@ from vllm.v1.engine.output_processor import RequestState
 from dynamicPD.patching import dynamicPDPatch
 
 class RequestStatePatch(dynamicPDPatch[RequestState]):
+    _orig_make_request_output = RequestState.make_request_output
     def make_request_output(
         self,
         new_token_ids: list[int],
-        pooling_output: Optional[torch.Tensor],
-        finish_reason: Optional[FinishReason],
-        stop_reason: Union[int, str, None],
-        kv_transfer_params: Optional[dict[str, Any]] = None,
-    ) -> Optional[Union[RequestOutput, PoolingRequestOutput]]:
-
-        finished = finish_reason is not None
-        final_only = self.output_kind == RequestOutputKind.FINAL_ONLY
-
-        if not finished and final_only:
-            # Only the final output is required in FINAL_ONLY mode.
-            return None
-
-        request_id = self.request_id
-        if pooling_output is not None:
-            return self._new_request_output(
-                request_id, [self._new_pooling_output(pooling_output)],
-                finished)
-
-        output = self._new_completion_output(new_token_ids, finish_reason,
-                                             stop_reason)
-
-        if self.parent_req is None:
-            outputs = [output]
-        else:
-            request_id, outputs, finished = self.parent_req.get_outputs(
-                request_id, output)
-            if not outputs:
-                return None
-
-        is_migrate = stop_reason == 'migrate'
-        # print(f"Request {request_id} is_migrate: {is_migrate}")
-        return self._new_request_output(request_id, outputs, finished,
-                                        is_migrate, kv_transfer_params)
+        pooling_output: torch.Tensor | None,
+        finish_reason: FinishReason | None,
+        stop_reason: int | str | None,
+        kv_transfer_params: dict[str, Any] | None = None,
+        routed_experts: np.ndarray | None = None,
+    ) -> RequestOutput | PoolingRequestOutput | None:
+        is_migrate = stop_reason == "migrate"
+        if is_migrate:
+            kv_transfer_params = kv_transfer_params or {}
+            kv_transfer_params["migrate"] = True
+        return self._orig_make_request_output(
+            new_token_ids=new_token_ids,
+            pooling_output=pooling_output,
+            finish_reason=finish_reason,
+            stop_reason=stop_reason,
+            kv_transfer_params=kv_transfer_params,
+            routed_experts=routed_experts,
+        )
 
     def _new_request_output(
         self,
-        request_id: str,
-        outputs: Union[list[CompletionOutput], list[PoolingOutput]],
+        external_req_id: str,
+        outputs: list[CompletionOutput] | list[PoolingOutput],
         finished: bool,
-        is_migrate: Optional[bool] = False,
-        kv_transfer_params: Optional[dict[str, Any]] = None,
-    ) -> Union[RequestOutput, PoolingRequestOutput]:
+        kv_transfer_params: dict[str, Any] | None = None,
+        is_migrate: bool | None = False,
+    ) -> RequestOutput | PoolingRequestOutput:
+        # If prompt embeds were used, put placeholder prompt token ids
+        prompt_token_ids = self.prompt_token_ids
+        if prompt_token_ids is None and self.prompt_embeds is not None:
+            prompt_token_ids = [0] * len(self.prompt_embeds)
+        assert prompt_token_ids is not None
 
         first_output = outputs[0]
         if isinstance(first_output, PoolingOutput):
             assert len(outputs) == 1
-            # Prompt embeddings are currently not supported by pooling requests.
-            assert self.prompt_token_ids is not None
             return PoolingRequestOutput(
-                request_id=request_id,
+                request_id=external_req_id,
                 outputs=first_output,
-                prompt_token_ids=self.prompt_token_ids,
+                num_cached_tokens=self.num_cached_tokens,
+                prompt_token_ids=prompt_token_ids,
                 finished=finished,
             )
         assert self.logprobs_processor is not None
@@ -78,13 +68,9 @@ class RequestStatePatch(dynamicPDPatch[RequestState]):
         else:
             prompt_logprobs = self.logprobs_processor.prompt_logprobs
 
-        # If prompt embeds were used, put placeholder prompt token ids
-        prompt_token_ids = self.prompt_token_ids
-        if prompt_token_ids is None and self.prompt_embeds is not None:
-            prompt_token_ids = [0] * len(self.prompt_embeds)
-
         return RequestOutput(
-            request_id=request_id,
+            request_id=external_req_id,  # request_id is what was provided externally
+            lora_request=self.lora_request,
             prompt=self.prompt,
             prompt_token_ids=prompt_token_ids,
             prompt_logprobs=prompt_logprobs,
@@ -92,5 +78,6 @@ class RequestStatePatch(dynamicPDPatch[RequestState]):
             finished=finished,
             kv_transfer_params=kv_transfer_params,
             num_cached_tokens=self.num_cached_tokens,
-            migrate=is_migrate
+            metrics=self.stats,
+            migrate=kv_transfer_params.get("migrate", False) if kv_transfer_params else False
         )
