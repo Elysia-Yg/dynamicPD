@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dynamicPD"
-version = "0.11.0"
+version = "0.18.0"
 requires-python = ">=3.10"
 description = "dynamicPD adapt vllm"
 
@@ -20,10 +20,10 @@ dynamicPD = "dynamicPD.plugin:dynamicPD_plugin"
 
 [project.optional-dependencies]
 vllm = [
-  "vllm==0.11.0",
+  "vllm==0.18.0",
 ]
 vllm-ascend = [
-  "vllm-ascend==0.11.0"
+  "vllm-ascend==0.18.0"
 ]
 
 [tool.setuptools.packages.find]

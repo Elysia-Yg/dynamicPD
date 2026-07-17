@@ -34,7 +34,6 @@ from vllm.lora.request import LoRARequest
 from vllm.lora.utils import get_adapter_absolute_path
 from vllm.multimodal import MultiModalDataDict
 from vllm.multimodal.image import convert_image_mode
-from vllm.transformers_utils.tokenizer import AnyTokenizer
 from dynamicPD.vllm.vllm.transformers_utils.tokenizer import get_lora_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -116,7 +115,7 @@ class BenchmarkDataset(ABC):
         tokenizer: PreTrainedTokenizerBase,
         max_loras: Optional[int] = None,
         lora_path: Optional[str] = None,
-    ) -> tuple[Optional[LoRARequest], AnyTokenizer]:
+    ) -> tuple[Optional[LoRARequest], Any]:
         """
         Optionally select a random LoRA request and return its associated
         tokenizer.
@@ -231,7 +230,7 @@ def lora_path_on_disk(lora_path: str) -> str:
 
 
 # Global cache for LoRA tokenizers.
-lora_tokenizer_cache: dict[int, AnyTokenizer] = {}
+lora_tokenizer_cache = {}
 
 
 def process_image(image: Any) -> Mapping[str, Any]:

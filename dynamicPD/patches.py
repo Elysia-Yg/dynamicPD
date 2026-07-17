@@ -4,13 +4,17 @@ from vllm.v1.engine import utils as engine_utils
 
 
 from vllm_ascend.platform import NPUPlatform
-from vllm_ascend.worker.worker_v1 import NPUWorker
-from vllm_ascend.ops import register_custom_ops
+from vllm_ascend.worker.worker import NPUWorker
 
 from dynamicPD.vllm.vllm.outputs import RequestOutputPatch
-from dynamicPD.vllm.vllm.distributed.parallel_state import ParallelStatePatch
-from dynamicPD.vllm.vllm.engine.protocol import EngineClientPatch
-from dynamicPD.vllm.vllm.forward_context import ForwardContextPatch
+from dynamicPD.vllm.vllm.distributed.communication_op import (
+    CommunicationOpPatch,
+    install_communication_op_patch,
+)
+from dynamicPD.vllm.vllm.distributed.parallel_state import (
+    ParallelStatePatch,
+    install_parallel_state_patch,
+)
 from dynamicPD.vllm.vllm.model_executor.layers.linear import ColumnParallelLinearPatch, RowParallelLinearPatch
 from dynamicPD.vllm.vllm.model_executor.layers.logits_processor import LogitsProcessorPatch
 from dynamicPD.vllm.vllm.model_executor.layers.vocab_parallel_embeding import VocabParallelEmbeddingPatch
@@ -19,8 +23,6 @@ from dynamicPD.vllm.vllm.model_executor.models.qwen3 import Qwen3AttentionPatch,
 from dynamicPD.vllm.vllm.v1.core.sched.output import SchedulerOutputPatch
 from dynamicPD.vllm.vllm.v1.core.sched.scheduler import SchedulerPatch
 from dynamicPD.vllm.vllm.v1.core.sched.utils import check_stop
-from dynamicPD.vllm.vllm.v1.engine.async_llm import AsyncLLMPatch
-from dynamicPD.vllm.vllm.v1.engine.core_client import AsyncMPClientPatch
 from dynamicPD.vllm.vllm.v1.engine.core import EngineCorePatch, EngineCoreProcPatch
 from dynamicPD.vllm.vllm.v1.engine.output_processor import RequestStatePatch
 from dynamicPD.vllm.vllm.v1.engine.utils import get_device_indices
@@ -28,11 +30,15 @@ from dynamicPD.vllm.vllm.v1.executor.multiproc_executor import MultiprocExecutor
 from dynamicPD.vllm.vllm.v1.outputs import ModelRunnerOutputPatch
 from dynamicPD.vllm.vllm.v1.request import RequestPatch
 
-from dynamicPD.vllm_ascend.vllm_ascend.distributed.llmdatadist_c_mgr_connector import LLMDataDistCMgrConnectorWorkerPatch
-from dynamicPD.vllm_ascend.vllm_ascend.ops.register_cuntom_ops import _maybe_pad_and_reduce_impl
+from dynamicPD.vllm_ascend.vllm_ascend.distributed.parallel_state import (
+    AscendParallelStatePatch,
+    install_ascend_parallel_state_patch,
+)
+from dynamicPD.vllm_ascend.vllm_ascend.ops.register_cuntom_ops import (
+    install_custom_ops_patch,
+)
 from dynamicPD.vllm_ascend.vllm_ascend.ops.vocab_parallel_embedding import AscendLogitsProcessorPatch
-from dynamicPD.vllm_ascend.vllm_ascend.worker.block_table import BlockTablePatch
-from dynamicPD.vllm_ascend.vllm_ascend.worker.model_runner_v1 import AsyncNPUModelRunnerOutputPatch, NPUModelRunnerPatch
+from dynamicPD.vllm_ascend.vllm_ascend.worker.model_runner_v1 import NPUModelRunnerPatch
 
 _installed = False
 
@@ -53,44 +59,86 @@ def apply_dynamicPD_patches():
     def patched_worker_init(self, *args, **kwargs):
         logger.info("Applying dynamicPD patch to NPUWorker.__init__")
 
-        result = orig_worker_init(self, *args, **kwargs)
-        #放这里是为了保障该patch是在vllm-ascend被加载后才应用的;vllm-ascend的patch应该都放在这
-        #vllm-ascend patch
-        AscendLogitsProcessorPatch.apply_patch()
-        AsyncNPUModelRunnerOutputPatch.apply_patch()
-        BlockTablePatch.apply_patch()
-        LLMDataDistCMgrConnectorWorkerPatch.apply_patch()
-        NPUModelRunnerPatch.apply_patch()
+        # vllm-ascend is loaded here; install its distributed patches before
+        # the worker initializes model-parallel groups.
+        import vllm_ascend.worker.worker as ascend_worker
+        import vllm_ascend.distributed.parallel_state as ascend_parallel_state
+        if not getattr(ascend_parallel_state,
+                       "_dynamic_pd_parallel_state_patched", False):
+            AscendParallelStatePatch.apply_patch()
+            install_ascend_parallel_state_patch()
+            ascend_parallel_state._dynamic_pd_parallel_state_patched = True
+        ascend_worker.init_ascend_model_parallel = ascend_parallel_state.init_ascend_model_parallel
 
-        register_custom_ops._maybe_pad_and_reduce_impl = _maybe_pad_and_reduce_impl
+        # install_custom_ops_patch()
+        result = orig_worker_init(self, *args, **kwargs)
+        # AscendLogitsProcessorPatch.apply_patch()
+        NPUModelRunnerPatch.apply_patch()
         return result
     
     NPUPlatform.pre_register_and_update = patched_pre_register
     NPUWorker.__init__ = patched_worker_init
 
     #vllm patch
-    AsyncLLMPatch.apply_patch()
-    AsyncMPClientPatch.apply_patch()
-    ColumnParallelLinearPatch.apply_patch()
-    EngineClientPatch.apply_patch()
+    # ColumnParallelLinearPatch.apply_patch()
     EngineCorePatch.apply_patch()
     EngineCoreProcPatch.apply_patch()
-    ForwardContextPatch.apply_patch()
-    LogitsProcessorPatch.apply_patch()
+    # LogitsProcessorPatch.apply_patch()
     ModelRunnerOutputPatch.apply_patch()
     MultiprocExecutorPatch.apply_patch()
     ParallelStatePatch.apply_patch()
-    Qwen2AttentionPatch.apply_patch()
-    Qwen2DecoderLayerPatch.apply_patch()
-    Qwen2ForCausalLMPatch.apply_patch()
-    Qwen3AttentionPatch.apply_patch()
-    Qwen3DecoderLayerPatch.apply_patch()
-    Qwen3ForCausalLMPatch.apply_patch()
+    install_parallel_state_patch()
+    CommunicationOpPatch.apply_patch()
+    install_communication_op_patch()
+    import vllm.distributed as vllm_distributed
+    import vllm.distributed.communication_op as communication_op
+    import vllm.distributed.parallel_state as parallel_state
+
+    for name in (
+        "get_tp_group",
+        "get_dcp_group",
+        "get_context_model_parallel_group",
+        "get_pcp_group",
+        "get_pp_group",
+        "get_dp_group",
+        "get_ep_group",
+        "get_eplb_group",
+        "get_offload_tp_group",
+        "get_secondary_tp_group",
+        "get_offload_dcp_group",
+        "get_secondary_dcp_group",
+        "get_offload_pcp_group",
+        "get_secondary_pcp_group",
+        "get_offload_pp_group",
+        "get_secondary_pp_group",
+        "get_offload_dp_group",
+        "get_secondary_dp_group",
+        "get_offload_ep_group",
+        "get_secondary_ep_group",
+        "get_offload_eplb_group",
+        "get_secondary_eplb_group",
+    ):
+        setattr(vllm_distributed, name, getattr(parallel_state, name))
+
+    for name in (
+        "tensor_model_parallel_all_reduce",
+        "tensor_model_parallel_all_gather",
+        "tensor_model_parallel_reduce_scatter",
+        "tensor_model_parallel_gather",
+        "broadcast_tensor_dict",
+    ):
+        setattr(vllm_distributed, name, getattr(communication_op, name))
+    # Qwen2AttentionPatch.apply_patch()
+    # Qwen2DecoderLayerPatch.apply_patch()
+    # Qwen2ForCausalLMPatch.apply_patch()
+    # Qwen3AttentionPatch.apply_patch()
+    # Qwen3DecoderLayerPatch.apply_patch()
+    # Qwen3ForCausalLMPatch.apply_patch()
     RequestOutputPatch.apply_patch()
     RequestPatch.apply_patch()
     RequestStatePatch.apply_patch()
-    RowParallelLinearPatch.apply_patch()
+    # RowParallelLinearPatch.apply_patch()
     SchedulerOutputPatch.apply_patch()
     SchedulerPatch.apply_patch()
-    VocabParallelEmbeddingPatch.apply_patch()
+    # VocabParallelEmbeddingPatch.apply_patch()
     WorkerProcPatch.apply_patch()

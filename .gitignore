@@ -17,3 +17,5 @@ benchmarks/logs/
 
 # Datasets
 benchmarks/*.csv
+
+profiling/results

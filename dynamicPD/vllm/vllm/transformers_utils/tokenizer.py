@@ -1,13 +1,13 @@
-from typing import Optional
+from typing import Optional, Any
 
 from vllm.lora.request import LoRARequest
 from vllm.logger import logger
-from vllm.transformers_utils.tokenizer import AnyTokenizer, get_tokenizer
+from vllm.tokenizers import get_tokenizer
 
 # benchmark使用，与性能优化无关
 
 def get_lora_tokenizer(lora_request: LoRARequest, *args,
-                       **kwargs) -> Optional[AnyTokenizer]:
+                       **kwargs) -> Optional[Any]:
     if lora_request is None:
         return None
     try:
