@@ -42,6 +42,8 @@ docker build \
 
 `BASE_IMAGE` 需要换成你实际可用的 Ascend / CANN / torch-npu 运行镜像。镜像默认设置 `DYNAMICPD_ENABLED=1`，入口命令是 `vllm`，因此可以直接追加 `serve` 参数：
 
+Docker build 阶段不会挂载宿主机 Ascend driver，因此 Dockerfile 在 `pip install -e` 时会临时设置 `TORCH_DEVICE_BACKEND_AUTOLOAD=0`，避免 PyTorch 生成 metadata 时自动加载 `torch_npu` 并查找 `libascend_hal.so`。这个变量只在 build 的安装命令中生效，不会作为运行时环境变量写入镜像。
+
 ```bash
 docker run --rm -it \
   --network host \

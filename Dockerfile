@@ -24,9 +24,13 @@ RUN if ! command -v git >/dev/null 2>&1; then \
 
 RUN ${WORKSPACE}/dynamicPD/scripts/apply_patch.sh
 
-RUN python -m pip install --no-cache-dir --no-build-isolation -e ${WORKSPACE}/vllm && \
-    python -m pip install --no-cache-dir --no-build-isolation -e ${WORKSPACE}/vllm-ascend && \
-    python -m pip install --no-cache-dir --no-build-isolation -e ${WORKSPACE}/dynamicPD
+RUN TORCH_DEVICE_BACKEND_AUTOLOAD=0 \
+    VLLM_TARGET_DEVICE=empty \
+    python -m pip install --no-cache-dir --no-build-isolation --no-deps -e ${WORKSPACE}/vllm && \
+    TORCH_DEVICE_BACKEND_AUTOLOAD=0 \
+    python -m pip install --no-cache-dir --no-build-isolation --no-deps -e ${WORKSPACE}/vllm-ascend && \
+    TORCH_DEVICE_BACKEND_AUTOLOAD=0 \
+    python -m pip install --no-cache-dir --no-build-isolation --no-deps -e ${WORKSPACE}/dynamicPD
 
 WORKDIR ${WORKSPACE}/dynamicPD/scripts
 
