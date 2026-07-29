@@ -1,0 +1,14 @@
+**/.git
+**/.pytest_cache
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.log
+**/kernel_meta
+**/.mypy_cache
+**/.ruff_cache
+**/build
+**/dist
+**/*.egg-info
+dynamicPD/scripts/decode1.txt
+dynamicPD/scripts/prefill1.txt

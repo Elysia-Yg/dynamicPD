@@ -1,0 +1,102 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index ea2c2a6cd..b13a1af71 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -2102,7 +2102,7 @@ class Scheduler(SchedulerInterface):
+             if req.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
+                 self.finished_recving_kv_req_ids.add(req_id)
+             else:
+-                assert RequestStatus.is_finished(req.status)
++                assert RequestStatus.is_finished(req.status), f"Unexpected status {req.status} for request {req_id}"
+                 self._free_blocks(self.requests[req_id])
+         for req_id in kv_connector_output.finished_sending or ():
+             logger.debug("Finished sending KV transfer for request %s", req_id)
+diff --git a/vllm/v1/cudagraph_dispatcher.py b/vllm/v1/cudagraph_dispatcher.py
+index 701c97d6d..7d92ce0ff 100644
+--- a/vllm/v1/cudagraph_dispatcher.py
++++ b/vllm/v1/cudagraph_dispatcher.py
+@@ -75,6 +75,7 @@ class CudagraphDispatcher:
+         assert capture_sizes is not None, (
+             "Cudagraph capture sizes must be set when cudagraphs are enabled."
+         )
++        logger.info("capture_sizes: %s, max_size: %d", capture_sizes, max_size)
+         self._bs_to_padded_graph_size: list[int] = [0] * (max_size + 1)
+         for end, start in zip(
+             capture_sizes + [max_size + 1],
+diff --git a/vllm/v1/engine/__init__.py b/vllm/v1/engine/__init__.py
+index d76948bc2..c021b46bf 100644
+--- a/vllm/v1/engine/__init__.py
++++ b/vllm/v1/engine/__init__.py
+@@ -26,7 +26,7 @@ PauseMode = Literal["abort", "wait", "keep"]
+ 
+ # These are possible values of RequestOutput.finish_reason,
+ # so form part of the external API.
+-FINISH_REASON_STRINGS = ("stop", "length", "abort", "error", "repetition")
++FINISH_REASON_STRINGS = ("stop", "length", "abort", "error", "repetition", "migrate")
+ 
+ EEP_NOTIFICATION_CALL_ID = -1
+ 
+@@ -58,6 +58,7 @@ class FinishReason(enum.IntEnum):
+     ABORT = 2
+     ERROR = 3
+     REPETITION = 4
++    MIGRATE = 5
+ 
+     def __str__(self):
+         return FINISH_REASON_STRINGS[self.value]
+@@ -208,6 +209,7 @@ class EngineCoreOutputs(
+     # In DP case, used to signal that a request was received for an
+     # "old" wave, so the next wave needs to be started in other engines.
+     start_wave: int | None = None
++    migrated_requests: set[str] | None = None
+ 
+     def __post_init__(self):
+         if self.timestamp == 0.0:
+diff --git a/vllm/v1/engine/utils.py b/vllm/v1/engine/utils.py
+index fb1c45946..f76d28b80 100644
+--- a/vllm/v1/engine/utils.py
++++ b/vllm/v1/engine/utils.py
+@@ -230,8 +230,9 @@ def get_device_indices(
+     if local_world_size is None:
+         local_world_size = world_size
+     try:
++        offset = int(os.getenv("START_DEVICE_ID", 0))
+         value = ",".join(
+-            str(current_platform.device_id_to_physical_device_id(i))
++            str(current_platform.device_id_to_physical_device_id(i + offset))
+             for i in range(
+                 local_dp_rank * world_size,
+                 local_dp_rank * world_size + local_world_size,
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index f2ee33b49..67349b351 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -309,6 +309,7 @@ class RequestStatus(enum.IntEnum):
+     FINISHED_IGNORED = enum.auto()
+     FINISHED_ERROR = enum.auto()
+     FINISHED_REPETITION = enum.auto()
++    FINISHED_MIGRATED = enum.auto()
+ 
+     def __str__(self) -> str:
+         return self.name
+@@ -334,4 +335,5 @@ _FINISHED_REASON_MAP = {
+     RequestStatus.FINISHED_ERROR: FinishReason.ERROR,
+     RequestStatus.WAITING_FOR_STREAMING_REQ: FinishReason.STOP,
+     RequestStatus.FINISHED_REPETITION: FinishReason.REPETITION,
++    RequestStatus.FINISHED_MIGRATED: FinishReason.MIGRATE,
+ }
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 98e1dab36..9aa52e366 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -258,7 +258,10 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
+         This function blocks until the copy is finished.
+         """
+         max_gen_len = self.sampled_token_ids_cpu.shape[-1]
++        t1 = time.perf_counter()
+         self.async_copy_ready_event.synchronize()
++        t2 = time.perf_counter()
++        logger.info(f"sync time: {t2 - t1}s")
+ 
+         # Release the device tensors once the copy has completed.
+         del self._logprobs_tensors

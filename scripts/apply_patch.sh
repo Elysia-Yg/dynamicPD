@@ -1,67 +1,97 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-PATCH_SRC_DIR="$(pwd)/patches"
-TARGET_DIR="/vllm-workspace/vllm/vllm"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCH_SRC_DIR="${PATCH_SRC_DIR:-${SCRIPT_DIR}/patches}"
+WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-echo "========== vLLM Patch Apply Script =========="
-echo
+VLLM_TARGET_DIR="${VLLM_TARGET_DIR:-${VLLM_DIR:-${WORKSPACE_DIR}/vllm}}"
+VLLM_ASCEND_TARGET_DIR="${VLLM_ASCEND_TARGET_DIR:-${VLLM_ASCEND_DIR:-${WORKSPACE_DIR}/vllm-ascend}}"
 
-# 检查目标目录是否存在
-if [ ! -d "$TARGET_DIR" ]; then
-    echo "[ERROR] Target directory does not exist:"
-    echo "        $TARGET_DIR"
+VLLM_PATCH="${PATCH_SRC_DIR}/vllm-0.18.0-dynamicpd.patch"
+VLLM_ASCEND_PATCH="${PATCH_SRC_DIR}/vllm-ascend-0.18.0-dynamicpd.patch"
+
+LEGACY_VLLM_PATCHES=(
+  "${PATCH_SRC_DIR}/FinishReason.patch"
+  "${PATCH_SRC_DIR}/RequestStatus.patch"
+  "${PATCH_SRC_DIR}/Get_device_indices.patch"
+)
+
+log() {
+  echo "[dynamicPD][patch] $*"
+}
+
+ensure_dir() {
+  local dir="$1"
+  local label="$2"
+  if [[ ! -d "${dir}" ]]; then
+    echo "[ERROR] ${label} does not exist: ${dir}" >&2
     exit 1
-fi
+  fi
+}
 
-# 检查 patch 文件是否存在
-if [ ! -f "$PATCH_SRC_DIR/FinishReason.patch" ]; then
-    echo "[ERROR] FinishReason.patch not found"
+apply_one_patch() {
+  local target_dir="$1"
+  local patch_file="$2"
+  local label="$3"
+
+  if [[ ! -f "${patch_file}" ]]; then
+    echo "[ERROR] Patch file does not exist: ${patch_file}" >&2
     exit 1
-fi
+  fi
 
-if [ ! -f "$PATCH_SRC_DIR/RequestStatus.patch" ]; then
-    echo "[ERROR] RequestStatus.patch not found"
-    exit 1
-fi
+  log "Checking ${label}: ${patch_file}"
+  if git -C "${target_dir}" apply --check "${patch_file}" >/dev/null 2>&1; then
+    git -C "${target_dir}" apply "${patch_file}"
+    log "Applied ${label}"
+    return
+  fi
 
-if [ ! -f "$PATCH_SRC_DIR/Get_device_indices.patch" ]; then
-    echo "[ERROR] Get_device_indices.patch not found"
-    exit 1
-fi
+  if git -C "${target_dir}" apply --reverse --check "${patch_file}" >/dev/null 2>&1; then
+    log "Skipped ${label}; patch is already applied"
+    return
+  fi
 
-echo "[INFO] Copying patch files..."
+  echo "[ERROR] ${label} cannot be applied cleanly to ${target_dir}" >&2
+  echo "        Patch: ${patch_file}" >&2
+  echo "        Inspect with: git -C ${target_dir} apply --check ${patch_file}" >&2
+  exit 1
+}
 
-cp "$PATCH_SRC_DIR/FinishReason.patch" "$TARGET_DIR/"
-cp "$PATCH_SRC_DIR/RequestStatus.patch" "$TARGET_DIR/"
-cp "$PATCH_SRC_DIR/Get_device_indices.patch" "$TARGET_DIR/"
+apply_vllm_patches() {
+  ensure_dir "${VLLM_TARGET_DIR}" "VLLM_TARGET_DIR"
 
-echo "[INFO] Patch files copied."
-echo
+  if [[ -f "${VLLM_PATCH}" ]]; then
+    apply_one_patch "${VLLM_TARGET_DIR}" "${VLLM_PATCH}" "vLLM 0.18.0 dynamicPD patch"
+    return
+  fi
 
-cd "$TARGET_DIR"
+  log "Aggregated vLLM patch not found; falling back to legacy patches"
+  for patch_file in "${LEGACY_VLLM_PATCHES[@]}"; do
+    apply_one_patch "${VLLM_TARGET_DIR}" "${patch_file}" "legacy vLLM patch $(basename "${patch_file}")"
+  done
+}
 
-echo "[INFO] Applying FinishReason.patch ..."
-git apply --check FinishReason.patch
-echo "[INFO] FinishReason.patch check passed."
-git apply FinishReason.patch
+apply_vllm_ascend_patches() {
+  ensure_dir "${VLLM_ASCEND_TARGET_DIR}" "VLLM_ASCEND_TARGET_DIR"
 
-echo "[INFO] FinishReason.patch applied successfully."
-echo
+  if [[ -f "${VLLM_ASCEND_PATCH}" ]]; then
+    apply_one_patch "${VLLM_ASCEND_TARGET_DIR}" "${VLLM_ASCEND_PATCH}" "vLLM-Ascend 0.18.0 dynamicPD patch"
+  else
+    log "No vLLM-Ascend patch found; skipping"
+  fi
+}
 
-echo "[INFO] Applying RequestStatus.patch ..."
-git apply --check RequestStatus.patch
-git apply RequestStatus.patch
+main() {
+  log "Patch source: ${PATCH_SRC_DIR}"
+  log "vLLM target: ${VLLM_TARGET_DIR}"
+  log "vLLM-Ascend target: ${VLLM_ASCEND_TARGET_DIR}"
 
-echo "[INFO] RequestStatus.patch applied successfully."
-echo
+  apply_vllm_patches
+  apply_vllm_ascend_patches
 
-echo "========== ALL PATCHES APPLIED SUCCESSFULLY =========="
+  log "All requested patches are applied"
+}
 
-echo "[INFO] Applying Get_device_indices.patch ..."
-git apply --check Get_device_indices.patch
-git apply Get_device_indices.patch
-
-echo "[INFO] Get_device_indices.patch applied successfully."
-echo
+main "$@"

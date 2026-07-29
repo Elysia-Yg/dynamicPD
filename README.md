@@ -27,6 +27,39 @@ export DYNAMICPD_ENABLED=1
 
 如果只想跑原生 vLLM / vLLM-Ascend，去掉这个环境变量或设置为 `0`。
 
+## Docker
+
+仓库提供了 `dynamicPD/Dockerfile`，会把当前 workspace 中的 `vllm/`、`vllm-ascend/` 和 `dynamicPD/` 一起打进镜像，并在镜像内执行 `scripts/apply_patch.sh`。请从 workspace 根目录构建：
+
+```bash
+cd /home/wujie/jingqi/vllm_workspace
+docker build \
+  -f dynamicPD/Dockerfile \
+  --build-arg BASE_IMAGE=vllm-ascend:0.18.0 \
+  -t dynamicpd:0.18.0 \
+  .
+```
+
+`BASE_IMAGE` 需要换成你实际可用的 Ascend / CANN / torch-npu 运行镜像。镜像默认设置 `DYNAMICPD_ENABLED=1`，入口命令是 `vllm`，因此可以直接追加 `serve` 参数：
+
+```bash
+docker run --rm -it \
+  --network host \
+  --privileged \
+  dynamicpd:0.18.0 \
+  serve /model/Qwen2.5-14B-Instruct --help
+```
+
+如果要在容器里使用脚本，可以覆盖入口：
+
+```bash
+docker run --rm -it \
+  --network host \
+  --privileged \
+  --entrypoint bash \
+  dynamicpd:0.18.0
+```
+
 ## 当前补丁内容
 
 - vLLM v1 scheduler：拆分 decode batch 与卸载到 decode 侧执行的 prefill batch。

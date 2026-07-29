@@ -1,0 +1,281 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index a84c36a2..34a2d28b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,7 @@ requires = [
+     "opencv-python-headless<=4.11.0.86", # Required to avoid numpy version conflict with vllm
+     "compressed_tensors>=0.11.0",
+     "arctic-inference==0.1.1",
+-    "triton-ascend==3.2.1"
++    "triton-ascend==3.2.0"
+ ]
+ build-backend = "setuptools.build_meta"
+ 
+diff --git a/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py b/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py
+index f29d2a48..84ff86a8 100644
+--- a/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py
++++ b/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py
+@@ -388,9 +388,9 @@ class KVCacheRecvingThread(threading.Thread):
+                 self.v_head_dim = self.model_config.hf_text_config.qk_rope_head_dim
+                 self.num_kv_heads = 1
+             else:
+-                self.k_head_dim = self.model_config.hf_text_config.head_dim
+-                self.v_head_dim = self.model_config.hf_text_config.head_dim
+-                self.num_kv_heads = max(self.model_config.hf_text_config.num_key_value_heads // self.tp_size, 1)
++                self.k_head_dim = self.model_config.get_head_size()
++                self.v_head_dim = self.k_head_dim
++                self.num_kv_heads = max(self.model_config.get_total_num_kv_heads() // self.tp_size, 1)
+         self.proc_not_transfer_request: dict[str, bool] = {}
+ 
+     def add_request(
+@@ -551,8 +551,9 @@ class KVCacheRecvingThread(threading.Thread):
+         req_end_time = time.perf_counter()
+         req_transfer_elapsed = (req_end_time - req_start_time) * 1000
+         logger.info(
+-            "KV cache transfer for request %s took %.2f ms. local_ip %s local_device_id %s remote_session_id %s",
++            "KV cache transfer for request %s (local req id: %s) took %.2f ms. local_ip %s local_device_id %s remote_session_id %s",
+             remote_request_id,
++            req_meta.get("request_id", "unknown"),
+             req_transfer_elapsed,
+             get_ip(),
+             self.tp_rank,
+@@ -643,9 +644,10 @@ class KVCacheRecvingThread(threading.Thread):
+         req_end_time = time.perf_counter()
+         req_transfer_elapsed = (req_end_time - req_start_time) * 1000
+         logger.info(
+-            "KV cache transfer for request %s took %.2f ms (%d groups,"
++            "KV cache transfer for request %s (local req id: %s) took %.2f ms (%d groups,"
+             " %d blocks). local_ip %s local_device_id %s remote_session_id %s",
+             remote_request_id,
++            req_meta.get("request_id", "N/A"),
+             req_transfer_elapsed,
+             num_transfer_groups,
+             num_blocks,
+@@ -676,9 +678,10 @@ class KVCacheRecvingThread(threading.Thread):
+         # Get necessary parameters
+         k_cache = list(self.kv_caches.values())[0][0]
+         device = k_cache.device
+-        head_dim = self.model_config.hf_text_config.head_dim
++        head_dim = self.model_config.get_head_size()
+         block_size = self.vllm_config.cache_config.block_size
+-        num_kv_head = max(self.model_config.hf_text_config.num_key_value_heads // self.tp_size, 1)
++        num_kv_head = max(
++            self.model_config.get_total_num_kv_heads() // self.tp_size, 1)
+         layers = len(self.kv_caches)
+         flat_block_ids = [item for sublist in block_ids for item in sublist]
+         block_ids_tensor = torch.tensor(flat_block_ids, dtype=torch.int64, device=device)
+diff --git a/vllm_ascend/ops/linear_op.py b/vllm_ascend/ops/linear_op.py
+index 85d29d3f..599f8307 100644
+--- a/vllm_ascend/ops/linear_op.py
++++ b/vllm_ascend/ops/linear_op.py
+@@ -383,11 +383,10 @@ class Flashcomm2OProjRowParallelOp(CustomRowParallelOp):
+ 
+ 
+ class MatmulAllreduceRowParallelOp(CustomRowParallelOp):
+-    _HCOMM_INFO = None
++    _HCOMM_INFO_BY_GROUP = {}
+ 
+     def __init__(self, layer):
+         super().__init__(layer)
+-        self.hcomm_info = self.get_hcomm_info(self.comm_group.device_group)
+ 
+     def apply_impl(self, input_: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, Parameter | None]:
+         input_parallel = self.get_input_parallel(input_)
+@@ -395,8 +394,9 @@ class MatmulAllreduceRowParallelOp(CustomRowParallelOp):
+         fusing communication and computation."""
+         bias_ = None if (self.tp_rank > 0 or self.skip_bias_add) else self.bias
+         if self.reduce_results and self.tp_size > 1:
++            hcomm_info = self.get_hcomm_info(self.comm_group.device_group)
+             output = torch_npu.npu_mm_all_reduce_base(
+-                input_parallel, self.layer.weight.t(), self.hcomm_info, bias=bias_
++                input_parallel, self.layer.weight.t(), hcomm_info, bias=bias_
+             )
+         else:
+             assert self.quant_method is not None
+@@ -408,16 +408,18 @@ class MatmulAllreduceRowParallelOp(CustomRowParallelOp):
+     @classmethod
+     def get_hcomm_info(cls, group: ProcessGroup) -> str:
+         """Get the HCCL communication information for the given group."""
+-        if cls._HCOMM_INFO is not None:
+-            return cls._HCOMM_INFO
++        cache_key = id(group)
++        if cache_key in cls._HCOMM_INFO_BY_GROUP:
++            return cls._HCOMM_INFO_BY_GROUP[cache_key]
+ 
+         rank = torch.distributed.get_rank(group)
+         if torch.__version__ > "2.0":
+             global_rank = torch.distributed.get_global_rank(group, rank)
+-            cls._HCOMM_INFO = group._get_backend(torch.device("npu")).get_hccl_comm_name(global_rank)
++            hcomm_info = group._get_backend(torch.device("npu")).get_hccl_comm_name(global_rank)
+         else:
+-            cls._HCOMM_INFO = group.get_hccl_comm_name(rank)
+-        return cls._HCOMM_INFO
++            hcomm_info = group.get_hccl_comm_name(rank)
++        cls._HCOMM_INFO_BY_GROUP[cache_key] = hcomm_info
++        return hcomm_info
+ 
+ 
+ class SequenceColumnParallelOp(CustomColumnParallelOp):
+diff --git a/vllm_ascend/worker/model_runner_v1.py b/vllm_ascend/worker/model_runner_v1.py
+index 5df036d1..06231a52 100644
+--- a/vllm_ascend/worker/model_runner_v1.py
++++ b/vllm_ascend/worker/model_runner_v1.py
+@@ -19,6 +19,7 @@
+ 
+ import math
+ import sys
++import time
+ from collections import defaultdict
+ from contextlib import contextmanager, nullcontext
+ from copy import copy, deepcopy
+@@ -82,7 +83,7 @@ from vllm.v1.worker import mamba_utils
+ from vllm.v1.worker.cp_utils import (
+     get_total_cp_world_size,
+ )
+-from vllm.v1.worker.gpu_model_runner import AsyncGPUModelRunnerOutput, GPUModelRunner
++from vllm.v1.worker.gpu_model_runner import GPUModelRunner
+ from vllm.v1.worker.ubatch_utils import (
+     UBatchSlices,
+     maybe_create_ubatch_slices,
+@@ -220,6 +221,101 @@ class ExecuteModelState(NamedTuple):
+     batch_desc: BatchDescriptor
+ 
+ 
++def _clone_logprobs_tensors(
++    logprobs_tensors: LogprobsTensors | None,
++) -> LogprobsTensors | None:
++    if logprobs_tensors is None:
++        return None
++    if logprobs_tensors.logprob_token_ids.device.type == "cpu":
++        return logprobs_tensors
++    return LogprobsTensors(
++        logprob_token_ids=logprobs_tensors.logprob_token_ids.clone(),
++        logprobs=logprobs_tensors.logprobs.clone(),
++        selected_token_ranks=logprobs_tensors.selected_token_ranks.clone(),
++        cu_num_generated_tokens=logprobs_tensors.cu_num_generated_tokens,
++    )
++
++
++class AsyncNPUModelRunnerOutput(AsyncModelRunnerOutput):
++    def __init__(
++        self,
++        model_runner_output: ModelRunnerOutput,
++        sampled_token_ids: torch.Tensor,
++        logprobs_tensors: LogprobsTensors | None,
++        invalid_req_indices: list[int],
++        async_output_copy_stream: torch.npu.Stream,
++        producer_stream: torch.npu.Stream,
++        vocab_size: int,
++    ) -> None:
++        
++        self._model_runner_output = model_runner_output
++        self._invalid_req_indices = invalid_req_indices
++
++        self.device_snapshot_ready_event = torch.npu.Event()
++        self.async_copy_ready_event = torch.npu.Event()
++
++        self._sampled_token_ids = sampled_token_ids
++        self.vocab_size = vocab_size
++        self._logprobs_tensors = logprobs_tensors
++
++        self.producer_stream = producer_stream
++        self.async_output_copy_stream = async_output_copy_stream
++        with torch.npu.stream(producer_stream):
++            self.device_snapshot_ready_event.record()
++        with torch.npu.stream(async_output_copy_stream):
++            async_output_copy_stream.wait_event(
++                self.device_snapshot_ready_event)
++            self.sampled_token_ids_cpu = self._sampled_token_ids.to(
++                "cpu", non_blocking=True)
++            self._logprobs_tensors_cpu = (
++                self._logprobs_tensors.to_cpu_nonblocking()
++                if self._logprobs_tensors
++                else None
++            )
++            self.async_copy_ready_event.record()
++
++
++    def get_output(self) -> ModelRunnerOutput:
++        max_gen_len = self.sampled_token_ids_cpu.shape[-1]
++        t1 = time.perf_counter()
++        snapshot_ready = bool(self.device_snapshot_ready_event.query())
++        copy_ready = bool(self.async_copy_ready_event.query())
++        logger.info("before sync")
++        self.device_snapshot_ready_event.synchronize()
++        t2 = time.perf_counter()
++        logger.info(
++            "sync time: %.6f seconds, snapshot_ready: %s, "
++            "copy_ready_before_sync: %s, producer_stream: %s, copy_stream: %s",
++            t2 - t1,
++            snapshot_ready,
++            copy_ready,
++            self.producer_stream,
++            self.async_output_copy_stream,
++        )
++
++        del self._logprobs_tensors
++        del self._sampled_token_ids
++        if max_gen_len == 1:
++            valid_sampled_token_ids = self.sampled_token_ids_cpu.tolist()
++            for i in self._invalid_req_indices:
++                valid_sampled_token_ids[i].clear()
++            logprobs_lists = None
++            if self._logprobs_tensors_cpu is not None:
++                logprobs_lists = self._logprobs_tensors_cpu.tolists()
++        else:
++            valid_sampled_token_ids, logprobs_lists = RejectionSampler.parse_output(
++                self.sampled_token_ids_cpu,
++                self.vocab_size,
++                self._invalid_req_indices,
++                logprobs_tensors=self._logprobs_tensors_cpu,
++            )
++
++        output = self._model_runner_output
++        output.sampled_token_ids = valid_sampled_token_ids
++        output.logprobs = logprobs_lists
++        return output
++
++
+ class NPUModelRunner(GPUModelRunner):
+     def __init__(self, vllm_config: VllmConfig, device: torch.device):
+         # TODO(qcs): These manual pad and unpad for GPUModelRunner are
+@@ -1210,7 +1306,7 @@ class NPUModelRunner(GPUModelRunner):
+                     num_encoder_reqs=len(scheduler_output.scheduled_encoder_inputs),
+                 )
+ 
+-                logger.debug(
++                logger.info(
+                     "Running batch with cudagraph_mode: %s, batch_descriptor: %s, "
+                     "should_ubatch: %s, num_tokens_across_dp: %s",
+                     cudagraph_mode,
+@@ -1599,12 +1695,13 @@ class NPUModelRunner(GPUModelRunner):
+ 
+         if not self.use_async_scheduling:
+             return model_runner_output
+-        return AsyncGPUModelRunnerOutput(
++        return AsyncNPUModelRunnerOutput(
+             model_runner_output=model_runner_output,
+             sampled_token_ids=sampler_output.sampled_token_ids,
+             logprobs_tensors=sampler_output.logprobs_tensors,
+             invalid_req_indices=invalid_req_indices,
+             async_output_copy_stream=self.async_output_copy_stream,
++            producer_stream=torch.npu.current_stream(),
+             vocab_size=self.input_batch.vocab_size,
+         )
+ 
+@@ -2624,6 +2721,15 @@ class NPUModelRunner(GPUModelRunner):
+ 
+         self.may_reinitialize_input_batch(kv_cache_config)
+         kv_caches = self.initialize_kv_cache_tensors(kv_cache_config)
++        for layer_name, kv_cache in kv_caches.items():
++            logger.info(
++                "KV cache for layer %s: num tensor=%d, shape=%s, dtype=%s, device=%s",
++                layer_name,
++                len(kv_cache),
++                [kv_cache.shape for kv_cache in kv_cache],
++                kv_cache[0].dtype,
++                kv_cache[0].device,
++            )
+         # TODO: refactor the logic of attention
+         # Initialize drafter attention group initialization
+         if self.speculative_config and (
