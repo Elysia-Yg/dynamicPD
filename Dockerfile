@@ -34,5 +34,4 @@ RUN TORCH_DEVICE_BACKEND_AUTOLOAD=0 \
 
 WORKDIR ${WORKSPACE}/dynamicPD/scripts
 
-ENTRYPOINT ["vllm"]
-CMD ["--help"]
+CMD ["/bin/bash"]

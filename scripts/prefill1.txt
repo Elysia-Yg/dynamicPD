@@ -368,3 +368,28 @@ INFO 07-17 12:16:40 [__init__.py:239] Platform plugin ascend is activated
 INFO 07-17 12:16:49 [pd_coordinator.py:181] DynamicPD Coordinator started, input_address=tcp://127.0.0.1:16666, publish_address=tcp://127.0.0.1:16667
 INFO 07-17 12:16:49 [pd_coordinator.py:196] DynamicPD Coordinator received load update: fdcs:292256:0:0:prefill
 INFO 07-17 12:16:58 [pd_coordinator.py:196] DynamicPD Coordinator received load update: fdcs:292246:0:0:decode
+(EngineCore pid=292256) ERROR 07-29 07:29:32 [multiproc_executor.py:273] Worker proc VllmWorker-0 died unexpectedly, shutting down executor.
+(Worker_TP1_EP1 pid=292319) INFO 07-29 07:29:32 [multiproc_executor.py:759] Parent process exited, terminating worker queues
+(Worker_TP1_EP1 pid=292319) INFO 07-29 07:29:32 [multiproc_executor.py:854] WorkerProc shutting down.
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101] EngineCore encountered a fatal error.
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101] Traceback (most recent call last):
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]   File "/vllm-workspace/vllm/vllm/v1/engine/core.py", line 1092, in run_engine_core
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]     engine_core.run_busy_loop()
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]   File "/vllm-workspace/vllm/vllm/v1/engine/core.py", line 1131, in run_busy_loop
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]     self._process_input_queue()
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]   File "/vllm-workspace/vllm/vllm/v1/engine/core.py", line 1154, in _process_input_queue
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]     self._handle_client_request(*req)
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]   File "/vllm-workspace/dynamicPD/dynamicPD/vllm/vllm/v1/engine/core.py", line 271, in _handle_client_request
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]     return EngineCoreProcPatch._orig_handle_client_request(
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]   File "/vllm-workspace/vllm/vllm/v1/engine/core.py", line 1257, in _handle_client_request
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101]     raise RuntimeError("Executor failed.")
+(EngineCore pid=292256) ERROR 07-29 07:29:36 [core.py:1101] RuntimeError: Executor failed.
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707] AsyncLLM output_handler failed.
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707] Traceback (most recent call last):
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707]   File "/vllm-workspace/vllm/vllm/v1/engine/async_llm.py", line 663, in output_handler
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707]     outputs = await engine_core.get_output_async()
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707]   File "/vllm-workspace/vllm/vllm/v1/engine/core_client.py", line 1022, in get_output_async
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707]     raise self._format_exception(outputs) from None
+(APIServer pid=292216) ERROR 07-29 07:29:36 [async_llm.py:707] vllm.v1.engine.exceptions.EngineDeadError: EngineCore encountered an issue. See stack trace (above) for the root cause.

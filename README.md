@@ -40,7 +40,7 @@ docker build \
   .
 ```
 
-`BASE_IMAGE` 需要换成你实际可用的 Ascend / CANN / torch-npu 运行镜像。镜像默认设置 `DYNAMICPD_ENABLED=1`，入口命令是 `vllm`，因此可以直接追加 `serve` 参数：
+`BASE_IMAGE` 需要换成你实际可用的 Ascend / CANN / torch-npu 运行镜像。镜像默认设置 `DYNAMICPD_ENABLED=1`，默认命令是 `bash`，方便进入容器调试。
 
 Docker build 阶段不会挂载宿主机 Ascend driver，因此 Dockerfile 在 `pip install -e` 时会临时设置 `TORCH_DEVICE_BACKEND_AUTOLOAD=0`，避免 PyTorch 生成 metadata 时自动加载 `torch_npu` 并查找 `libascend_hal.so`。这个变量只在 build 的安装命令中生效，不会作为运行时环境变量写入镜像。
 
@@ -48,18 +48,17 @@ Docker build 阶段不会挂载宿主机 Ascend driver，因此 Dockerfile 在 `
 docker run --rm -it \
   --network host \
   --privileged \
-  dynamicpd:0.18.0 \
-  serve /model/Qwen2.5-14B-Instruct --help
+  dynamicpd:0.18.0
 ```
 
-如果要在容器里使用脚本，可以覆盖入口：
+如果要直接启动服务，可以显式执行 `vllm serve`：
 
 ```bash
 docker run --rm -it \
   --network host \
   --privileged \
-  --entrypoint bash \
-  dynamicpd:0.18.0
+  dynamicpd:0.18.0 \
+  vllm serve /model/Qwen2.5-14B-Instruct --help
 ```
 
 ## 当前补丁内容
